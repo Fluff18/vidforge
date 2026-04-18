@@ -1,0 +1,48 @@
+# ── Secrets / Environment ────────────────────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.staging
+# (keep .env.example and .env.local.example — they have no real keys)
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+
+# ── Node / Next.js ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Runtime data ─────────────────────────────────────────────────────────────
+backend/data/knowledge.json
+backend/data/checkpoints.db
+*.db
+*.sqlite
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── IDE ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo

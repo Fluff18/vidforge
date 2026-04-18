@@ -1,0 +1,63 @@
+"""Node 5 — Score: send each video to TRIBE v2 sidecar and get brain scores."""
+from __future__ import annotations
+
+import httpx
+from app.graph.state import AgentState
+from app.config import settings
+
+
+LABEL_MAP = ["Emotional", "Feature-Focused", "Bold & Viral"]
+
+
+async def score_node(state: AgentState) -> dict:
+    video_jobs = state["video_jobs"]
+    brief = state["brief"]
+    questions = state.get("clarifying_questions", [])
+    answers = state.get("clarifying_answers", [])
+    audience = next((a for q, a in zip(questions, answers) if "audience" in q.lower()), "")
+
+    variants = [
+        {
+            "id": f"v{i}",
+            "headline": LABEL_MAP[i] if i < len(LABEL_MAP) else f"Variant {i+1}",
+            "primaryText": job["prompt"],
+            "cta": brief[:100],
+            "videoUrl": job["video_url"],
+            "audience": audience,
+        }
+        for i, job in enumerate(video_jobs)
+        if job.get("video_url")
+    ]
+
+    if not variants:
+        return {"scored_variants": [], "status": "scored"}
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            f"{settings.tribe_sidecar_url}/score",
+            json={"variants": variants},
+        )
+        resp.raise_for_status()
+        tribe_result = resp.json()
+
+    # Merge TRIBE results with video_jobs
+    tribe_by_id = {r["id"]: r for r in tribe_result.get("results", [])}
+
+    scored_variants = []
+    for i, job in enumerate(video_jobs):
+        vid_id = f"v{i}"
+        tribe_data = tribe_by_id.get(vid_id, {})
+        scored_variants.append({
+            "id": vid_id,
+            "label": LABEL_MAP[i] if i < len(LABEL_MAP) else f"Variant {i+1}",
+            "prompt": job["prompt"],
+            "video_url": job.get("video_url", ""),
+            "roi_activations": tribe_data.get("roiActivations", {}),
+            "dimensions": tribe_data.get("dimensions", []),
+            "quality_engagement_score": tribe_data.get("qualityEngagementScore", 0),
+        })
+
+    return {
+        "scored_variants": scored_variants,
+        "status": "scored",
+    }
