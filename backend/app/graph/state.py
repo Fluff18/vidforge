@@ -20,6 +20,9 @@ class AgentState(TypedDict):
     # Knowledge retrieval
     knowledge_context: list[dict[str, Any]]  # past winning prompts from Butterbase
 
+    # Uploaded reference assets (images/documents)
+    uploaded_files: list[dict[str, Any]]     # [{id, filename, kind, summary, ...}]
+
     # Prompt forge node
     video_prompts: list[str]               # 3 distinct prompts
 

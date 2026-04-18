@@ -1,9 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Clapperboard, ArrowRight, Sparkles } from "lucide-react";
+import { Clapperboard, ArrowRight, Sparkles, Upload, X, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
 import type { UseCase } from "./types";
+
+const MAX_FILES = 10;
+const MAX_FILE_MB = 25;
+const ACCEPTED_MIME = ".jpg,.jpeg,.png,.webp,.gif,.pdf,.docx,.txt,.md";
+
+interface UploadedRef {
+  id: string;
+  filename: string;
+  kind: string;
+  summary: string;
+  error?: string | null;
+}
 
 const USE_CASES: { value: UseCase; label: string; description: string }[] = [
   { value: "product_ad",   label: "Product Ad",       description: "Turn a product into a polished video ad" },
@@ -75,7 +87,52 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [uploadId, setUploadId] = useState<string | null>(null);
+  const [refs, setRefs] = useState<UploadedRef[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+  async function uploadFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList);
+    if (!files.length) return;
+
+    if (refs.length + files.length > MAX_FILES) {
+      setError(`You can attach up to ${MAX_FILES} reference files.`);
+      return;
+    }
+    const oversized = files.find((f) => f.size > MAX_FILE_MB * 1024 * 1024);
+    if (oversized) {
+      setError(`${oversized.name} exceeds the ${MAX_FILE_MB}MB limit.`);
+      return;
+    }
+
+    setIsUploading(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      files.forEach((f) => form.append("files", f));
+      const res = await fetch(`${API}/api/upload`, { method: "POST", body: form });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail || `Upload failed (${res.status})`);
+      }
+      const data = await res.json();
+      setUploadId(data.upload_id);
+      setRefs((prev) => [...prev, ...(data.files as UploadedRef[])]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function removeRef(id: string) {
+    setRefs((prev) => prev.filter((r) => r.id !== id));
+  }
 
   async function handleBriefSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -88,7 +145,11 @@ export default function Home() {
       const res = await fetch(`${API}/api/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief: brief.trim(), use_case: useCase }),
+        body: JSON.stringify({
+          brief: brief.trim(),
+          use_case: useCase,
+          upload_id: uploadId,
+        }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
@@ -181,6 +242,88 @@ export default function Home() {
                   rows={4}
                   className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 resize-none"
                 />
+              </div>
+
+              {/* Reference uploads (images / documents) */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  if (e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
+                }}
+                className={`rounded-xl border-2 border-dashed px-4 py-5 transition-colors ${
+                  dragOver ? "border-indigo-500 bg-indigo-950/30" : "border-slate-700 bg-slate-900/50"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-slate-300 text-sm">
+                    {isUploading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isUploading
+                        ? "Processing references..."
+                        : "Drop reference images or docs here (optional)"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading || refs.length >= MAX_FILES}
+                    className="text-xs text-indigo-300 hover:text-indigo-200 disabled:opacity-50"
+                  >
+                    Browse
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={ACCEPTED_MIME}
+                    onChange={(e) => e.target.files && uploadFiles(e.target.files)}
+                    className="hidden"
+                  />
+                </div>
+                <p className="text-slate-500 text-xs mt-1">
+                  Images (jpg, png, webp, gif) or docs (pdf, docx, txt, md). Max {MAX_FILES} files, {MAX_FILE_MB}MB each.
+                </p>
+
+                {refs.length > 0 && (
+                  <ul className="mt-3 space-y-1.5">
+                    {refs.map((r) => (
+                      <li
+                        key={r.id}
+                        className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+                      >
+                        {r.kind === "image" ? (
+                          <ImageIcon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        )}
+                        <span className="text-slate-200 truncate flex-1">{r.filename}</span>
+                        {r.error ? (
+                          <span className="text-red-400 text-[11px]">failed</span>
+                        ) : (
+                          <span className="text-slate-500 text-[11px]">{r.kind}</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeRef(r.id)}
+                          className="text-slate-500 hover:text-slate-300"
+                          aria-label={`Remove ${r.filename}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               {error && <p className="text-red-400 text-sm">{error}</p>}

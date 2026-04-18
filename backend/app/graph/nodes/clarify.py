@@ -4,21 +4,27 @@ from __future__ import annotations
 import json
 from app.graph.state import AgentState
 from app.services.openai_client import openai_client
+from app.services.file_processor import format_for_prompt
 
 
 CLARIFY_SYSTEM = """You are a creative director helping generate AI videos.
-Given a brief, produce 3-5 concise clarifying questions that will improve the final video.
-Focus on: target audience, visual style/tone, key message, platform format (aspect ratio, length), and any brand constraints.
+Given a brief (and any user-provided reference assets), produce 3-5 concise clarifying
+questions that will improve the final video. Focus on: target audience, visual style/tone,
+key message, platform format (aspect ratio, length), and any brand constraints.
+If references are provided, ask questions that build on them rather than re-asking what
+they already reveal.
 Return ONLY a JSON array of question strings. Example:
 ["Who is the target audience?", "What is the desired mood — energetic or calm?"]"""
 
 
 async def clarify_node(state: AgentState) -> dict:
     brief = state["brief"]
+    uploaded = state.get("uploaded_files", [])
+    references = format_for_prompt(uploaded)
 
     questions_raw = await openai_client.chat(
         system=CLARIFY_SYSTEM,
-        user=f"Brief: {brief}",
+        user=f"Brief: {brief}{references}",
     )
 
     try:
