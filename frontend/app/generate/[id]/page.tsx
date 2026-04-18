@@ -66,11 +66,15 @@ export default function GeneratePage() {
   }, [sessionId, router, API, currentStep]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4">
-      <div className="text-center max-w-md space-y-8">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-[#070b18] text-white relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute top-[-120px] left-1/2 -translate-x-1/2 w-[640px] h-[280px] rounded-full bg-indigo-600/10 blur-[100px]" />
+      </div>
+
+      <div className="relative text-center max-w-md space-y-8 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm px-7 py-9">
         {/* Pulsing brain icon */}
         <div className="flex justify-center">
-          <div className="rounded-full bg-indigo-950 border border-indigo-700 p-6 animate-pulse">
+          <div className="rounded-full bg-indigo-950/70 border border-indigo-500/40 p-6 animate-pulse">
             <Brain className="w-12 h-12 text-indigo-400" />
           </div>
         </div>
@@ -82,7 +86,7 @@ export default function GeneratePage() {
           {error ? (
             <p className="text-red-400">{error}</p>
           ) : (
-            <p className="text-slate-400 text-sm">
+            <p className="text-white/65 text-sm">
               {STEPS[Math.min(currentStep, STEPS.length - 1)].label}
             </p>
           )}
@@ -99,12 +103,12 @@ export default function GeneratePage() {
                       ? "bg-indigo-400"
                       : i === currentStep
                       ? "bg-indigo-400 animate-pulse"
-                      : "bg-slate-700"
+                      : "bg-white/20"
                   }`}
                 />
                 <span
                   className={`text-sm ${
-                    i <= currentStep ? "text-slate-300" : "text-slate-600"
+                      i <= currentStep ? "text-white/80" : "text-white/35"
                   }`}
                 >
                   {step.label}
@@ -116,7 +120,7 @@ export default function GeneratePage() {
 
         {error && (
           <button
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/create")}
             className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
           >
             Try again

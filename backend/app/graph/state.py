@@ -25,6 +25,7 @@ class AgentState(TypedDict):
 
     # Video gen node
     video_jobs: list[dict[str, str]]       # [{job_id, prompt, status, video_url}]
+    fallback_mode: bool                    # True when MrBeast demo videos are used
 
     # Score node
     scored_variants: list[dict[str, Any]]  # [{video_url, brain_scores, dimensions}]
@@ -32,3 +33,8 @@ class AgentState(TypedDict):
     # Status tracking
     status: str
     error: str | None
+
+    # Optional media inputs
+    product_image: str | None  # data URI or base64 string
+    reference_video_name: str | None  # filename for style reference hint
+    reference_video_type: str | None  # mime type hint

@@ -97,6 +97,9 @@ class StartRequest(BaseModel):
     brief: str
     use_case: str = "product_ad"  # product_ad | short_form | simulation | walkthrough
     photon_user_id: str | None = None
+    product_image: str | None = None        # data URI from front-end upload
+    reference_video_name: str | None = None # filename used as style hint
+    reference_video_type: str | None = None # mime type hint
 
 
 class StartResponse(BaseModel):
@@ -142,12 +145,25 @@ async def start(req: StartRequest):
         "video_prompts": [],
         "video_jobs": [],
         "scored_variants": [],
+        "fallback_mode": False,
         "status": "clarifying",
         "error": None,
+        "product_image": req.product_image,
+        "reference_video_name": req.reference_video_name,
+        "reference_video_type": req.reference_video_type,
     }
 
-    # Run clarify node
-    result = await clarify_graph.ainvoke(initial_state)
+    # Run clarify node (30s hard timeout so UI never hangs indefinitely)
+    try:
+        result = await asyncio.wait_for(clarify_graph.ainvoke(initial_state), timeout=30)
+    except asyncio.TimeoutError:
+        initial_state["clarifying_questions"] = [
+            "Who is the target audience?",
+            "What visual style do you prefer — realistic, cinematic, or animated?",
+            "Which platform is this for (TikTok, YouTube, Instagram)?",
+        ]
+        initial_state["status"] = "awaiting_answers"
+        result = initial_state
     _sessions[session_id] = result
 
     # Persist session in Butterbase (best effort)
@@ -312,6 +328,7 @@ async def status(session_id: str):
         "status": state.get("status"),
         "scored_variants": state.get("scored_variants", []),
         "video_jobs": state.get("video_jobs", []),
+        "fallback_mode": state.get("fallback_mode", False),
         "error": state.get("error"),
     }
 

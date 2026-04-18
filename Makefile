@@ -13,9 +13,15 @@ setup-backend:
 
 setup-tribe:
 	@echo "→ Installing TRIBE v2 sidecar dependencies..."
-	cd backend && .venv/bin/pip install fastapi uvicorn httpx tribev2 numpy -q || true
-	@echo "→ Pre-downloading TRIBE v2 weights (this may take a few minutes)..."
-	cd backend && .venv/bin/python -c "from tribev2 import TribeModel; TribeModel.from_pretrained('facebook/tribev2', cache_folder='./tribe_sidecar/cache')" || echo "⚠  tribev2 not installed — mock scorer will be used"
+	cd backend && .venv/bin/pip install fastapi uvicorn httpx nilearn numpy -q
+	@echo "→ Installing tribev2 from GitHub (LLaMA 3.2 + V-JEPA2 + Wav2Vec-BERT)..."
+	cd backend && .venv/bin/pip install \
+		"git+https://github.com/facebookresearch/tribev2.git" -q || \
+		echo "⚠  tribev2 install failed — mock scorer will be used until it succeeds"
+	@echo "→ Pre-downloading TRIBE v2 weights (requires HF_TOKEN for LLaMA 3.2)..."
+	cd backend && .venv/bin/python -c \
+		"from tribev2 import TribeModel; TribeModel.from_pretrained('facebook/tribev2', cache_folder='./tribe_sidecar/cache')" || \
+		echo "⚠  Weight download failed — set HF_TOKEN in .env and re-run 'make setup-tribe'"
 
 setup-frontend:
 	@echo "→ Installing frontend dependencies..."

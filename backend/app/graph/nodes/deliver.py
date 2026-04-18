@@ -10,6 +10,13 @@ async def deliver_node(state: AgentState) -> dict:
     session_id = state["session_id"]
     scored_variants = state.get("scored_variants", [])
 
+    # Preserve upstream error state rather than marking delivered with empty results.
+    if state.get("status") == "error" or not scored_variants:
+        return {
+            "status": "error",
+            "error": state.get("error") or "No scored variants available to deliver.",
+        }
+
     # Store each scored variant in Butterbase (best effort)
     for variant in scored_variants:
         try:

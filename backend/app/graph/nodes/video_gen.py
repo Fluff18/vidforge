@@ -1,51 +1,51 @@
-"""Node 4 — Video Gen: submit 3 Seedance jobs in parallel and poll until complete."""
+"""Node 4 — Video Gen: return MrBeast YouTube demo videos immediately."""
 from __future__ import annotations
 
-import asyncio
 from app.graph.state import AgentState
-from app.services.seedance import seedance
+
+_FALLBACK_VIDEOS = [
+    {"video_url": "https://www.youtube.com/watch?v=0e3GPea1Tyg", "title": "$456,000 Squid Game In Real Life!"},
+    {"video_url": "https://www.youtube.com/watch?v=iogcY_4xGjo", "title": "$1 vs $1,000,000 Hotel Room!"},
+    {"video_url": "https://www.youtube.com/watch?v=v9WSjE3tIkg", "title": "World's Most Viewed TikToks!"},
+]
 
 
 async def video_gen_node(state: AgentState) -> dict:
-    prompts = state["video_prompts"]
-    use_case = state.get("use_case", "product_ad")
+    return _make_fallback(state["video_prompts"])
 
-    # Determine aspect ratio from use case
-    aspect_ratio = "9:16" if use_case == "short_form" else "16:9"
-    duration = 6  # seconds — reasonable for hackathon
 
-    # Submit all 3 jobs in parallel
-    job_ids = await asyncio.gather(
-        *[seedance.submit_job(prompt=p, aspect_ratio=aspect_ratio, duration=duration) for p in prompts]
-    )
-
+def _make_fallback(prompts: list[str]) -> dict:
     video_jobs = [
-        {"job_id": jid, "prompt": p, "status": "queued", "video_url": ""}
-        for jid, p in zip(job_ids, prompts)
+        {
+            "job_id": f"fallback_{i}",
+            "prompt": prompts[i] if i < len(prompts) else _FALLBACK_VIDEOS[i]["title"],
+            "status": "succeeded",
+            "video_url": _FALLBACK_VIDEOS[i]["video_url"],
+        }
+        for i in range(3)
     ]
-
-    # Poll all jobs until complete (max 3 minutes)
-    MAX_POLLS = 36  # 36 × 5s = 3 min
-    for _ in range(MAX_POLLS):
-        await asyncio.sleep(5)
-
-        still_pending = [j for j in video_jobs if j["status"] not in ("succeeded", "failed", "expired")]
-        if not still_pending:
-            break
-
-        results = await asyncio.gather(
-            *[seedance.poll_job(j["job_id"]) for j in still_pending],
-            return_exceptions=True,
-        )
-
-        for job, result in zip(still_pending, results):
-            if isinstance(result, Exception):
-                continue
-            job["status"] = result.get("status", "queued")
-            if result.get("video_url"):
-                job["video_url"] = result["video_url"]
-
     return {
         "video_jobs": video_jobs,
         "status": "videos_ready",
+        "fallback_mode": True,
     }
+
+
+
+def _make_fallback(prompts: list[str]) -> dict:
+    """Return 3 MrBeast YouTube videos as fallback job results."""
+    video_jobs = [
+        {
+            "job_id": f"fallback_{i}",
+            "prompt": prompts[i] if i < len(prompts) else _FALLBACK_VIDEOS[i]["title"],
+            "status": "succeeded",
+            "video_url": _FALLBACK_VIDEOS[i]["video_url"],
+        }
+        for i in range(3)
+    ]
+    return {
+        "video_jobs": video_jobs,
+        "status": "videos_ready",
+        "fallback_mode": True,
+    }
+
