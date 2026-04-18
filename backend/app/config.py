@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
 
+    # Anthropic (default LLM provider)
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
+
     # Seedance
     seedance_api_key: str = ""
     seedance_base_url: str = "https://api.seedance.ai/v1"

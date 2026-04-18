@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from app.graph.state import AgentState
-from app.services.openai_client import openai_client
+from app.services.anthropic_client import anthropic_client as llm
 
 
 RESEARCH_SYSTEM = """You are a research assistant helping create AI video content.
@@ -28,7 +28,7 @@ async def research_node(state: AgentState) -> dict:
     if qa_text:
         user_msg += f"\n\nQ&A:\n{qa_text}"
 
-    raw = await openai_client.chat(system=RESEARCH_SYSTEM, user=user_msg, temperature=0.3)
+    raw = await llm.chat(system=RESEARCH_SYSTEM, user=user_msg, temperature=0.3)
 
     try:
         start = raw.find("{")

@@ -7,7 +7,7 @@ import io
 import os
 from typing import Any
 
-from app.services.openai_client import openai_client
+from app.services.anthropic_client import anthropic_client as llm
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -76,7 +76,7 @@ async def process_file(filename: str, content_type: str | None, data: bytes) -> 
         b64 = base64.b64encode(data).decode("ascii")
         mime = content_type or "image/jpeg"
         try:
-            record["summary"] = await openai_client.describe_image(
+            record["summary"] = await llm.describe_image(
                 prompt=IMAGE_VISION_PROMPT,
                 image_b64=b64,
                 mime=mime,

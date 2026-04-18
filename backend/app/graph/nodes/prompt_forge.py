@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from app.graph.state import AgentState
-from app.services.openai_client import openai_client
+from app.services.anthropic_client import anthropic_client as llm
 from app.services.file_processor import format_for_prompt
 
 
@@ -57,7 +57,7 @@ Clarifying Q&A:
 Research Context:
 {json.dumps(research, indent=2)}{knowledge_section}{references_section}"""
 
-    raw = await openai_client.chat(
+    raw = await llm.chat(
         system=FORGE_SYSTEM,
         user=user_message,
     )
