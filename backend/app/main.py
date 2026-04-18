@@ -7,7 +7,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -15,6 +15,19 @@ from app.config import settings
 from app.graph.builder import clarify_graph, research_graph, video_graph
 from app.graph.state import AgentState
 from app.services.butterbase import butterbase
+from app.services.file_processor import classify, process_file
+
+
+# ---------------------------------------------------------------------------
+# Upload limits
+# ---------------------------------------------------------------------------
+MAX_FILES_PER_UPLOAD = 10
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
+
+UPLOAD_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "uploads")
+
+# Upload batches keyed by upload_id, populated before /api/start is called.
+_uploads: dict[str, list[dict[str, Any]]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +88,7 @@ def kb_update(idx: int, patch: dict) -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(os.path.dirname(_KB_PATH), exist_ok=True)
+    os.makedirs(UPLOAD_ROOT, exist_ok=True)
     yield
 
 
@@ -97,6 +111,7 @@ class StartRequest(BaseModel):
     brief: str
     use_case: str = "product_ad"  # product_ad | short_form | simulation | walkthrough
     photon_user_id: str | None = None
+    upload_id: str | None = None  # optional batch of pre-processed reference files
 
 
 class StartResponse(BaseModel):
@@ -126,10 +141,72 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/api/upload")
+async def upload_files(files: list[UploadFile] = File(...)):
+    """Accept reference images/documents, process them, and return an upload_id
+    that can be passed to /api/start to attach the assets to a session."""
+    if not files:
+        raise HTTPException(status_code=422, detail="No files provided")
+    if len(files) > MAX_FILES_PER_UPLOAD:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many files (max {MAX_FILES_PER_UPLOAD} per upload)",
+        )
+
+    upload_id = str(uuid.uuid4())
+    upload_dir = os.path.join(UPLOAD_ROOT, upload_id)
+    os.makedirs(upload_dir, exist_ok=True)
+
+    processed: list[dict[str, Any]] = []
+    for upload in files:
+        data = await upload.read()
+        if len(data) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{upload.filename} exceeds {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB limit",
+            )
+        filename = upload.filename or "file"
+        kind = classify(filename)
+        if kind == "unknown":
+            raise HTTPException(
+                status_code=415,
+                detail=f"Unsupported file type: {filename}",
+            )
+
+        safe_name = os.path.basename(filename)
+        disk_path = os.path.join(upload_dir, safe_name)
+        with open(disk_path, "wb") as f:
+            f.write(data)
+
+        record = await process_file(filename, upload.content_type, data)
+        record["id"] = str(uuid.uuid4())
+        record["path"] = disk_path
+        processed.append(record)
+
+    _uploads[upload_id] = processed
+    return {
+        "upload_id": upload_id,
+        "files": [
+            {
+                "id": f["id"],
+                "filename": f["filename"],
+                "kind": f["kind"],
+                "summary": f.get("summary", ""),
+                "error": f.get("error"),
+            }
+            for f in processed
+        ],
+    }
+
+
 @app.post("/api/start", response_model=StartResponse)
 async def start(req: StartRequest):
     """Step 1: Submit brief → get clarifying questions."""
     session_id = str(uuid.uuid4())
+
+    uploaded_files: list[dict[str, Any]] = []
+    if req.upload_id:
+        uploaded_files = _uploads.pop(req.upload_id, [])
 
     initial_state: AgentState = {
         "session_id": session_id,
@@ -139,6 +216,7 @@ async def start(req: StartRequest):
         "clarifying_answers": [],
         "research_context": {},
         "knowledge_context": [],
+        "uploaded_files": uploaded_files,
         "video_prompts": [],
         "video_jobs": [],
         "scored_variants": [],

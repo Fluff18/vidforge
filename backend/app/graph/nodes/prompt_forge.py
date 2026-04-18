@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from app.graph.state import AgentState
 from app.services.openai_client import openai_client
+from app.services.file_processor import format_for_prompt
 
 
 FORGE_SYSTEM = """You are an expert AI video prompt engineer for Seedance video generation.
@@ -32,8 +33,10 @@ async def prompt_forge_node(state: AgentState) -> dict:
     answers = state.get("clarifying_answers", [])
     research = state.get("research_context", {})
     knowledge = state.get("knowledge_context", [])
+    uploaded = state.get("uploaded_files", [])
 
     qa_section = "\n".join(f"Q: {q}\nA: {a}" for q, a in zip(questions, answers) if a)
+    references_section = format_for_prompt(uploaded)
 
     knowledge_section = ""
     if knowledge:
@@ -52,7 +55,7 @@ Clarifying Q&A:
 {qa_section}
 
 Research Context:
-{json.dumps(research, indent=2)}{knowledge_section}"""
+{json.dumps(research, indent=2)}{knowledge_section}{references_section}"""
 
     raw = await openai_client.chat(
         system=FORGE_SYSTEM,
