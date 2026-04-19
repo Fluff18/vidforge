@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # Seedance
     seedance_api_key: str = ""
     seedance_base_url: str = "https://api.seedance.ai/v1"
+    mock_video_gen: bool = False
 
     # Photon
     photon_api_key: str = ""
