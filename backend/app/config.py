@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from __future__ import annotations
-
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,9 +13,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # OpenAI
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
+    # Gemini
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
 
     # Seedance
     seedance_api_key: str = ""

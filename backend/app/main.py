@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from app.config import settings
 from app.graph.builder import clarify_graph, research_graph, video_graph
 from app.graph.state import AgentState
-from app.services.butterbase import butterbase
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +95,6 @@ app.add_middleware(
 class StartRequest(BaseModel):
     brief: str
     use_case: str = "product_ad"  # product_ad | short_form | simulation | walkthrough
-    photon_user_id: str | None = None
     product_image: str | None = None        # data URI from front-end upload
     reference_video_name: str | None = None # filename used as style hint
     reference_video_type: str | None = None # mime type hint
@@ -166,17 +164,6 @@ async def start(req: StartRequest):
         result = initial_state
     _sessions[session_id] = result
 
-    # Persist session in Butterbase (best effort)
-    try:
-        await butterbase.create_session(
-            session_id=session_id,
-            brief=req.brief,
-            use_case=req.use_case,
-            photon_user_id=req.photon_user_id,
-        )
-    except Exception:
-        pass
-
     return StartResponse(
         session_id=session_id,
         questions=result.get("clarifying_questions", []),
@@ -193,28 +180,17 @@ async def generate(req: AnswerRequest, background_tasks: BackgroundTasks):
     state["clarifying_answers"] = req.answers
     state["status"] = "generating"
 
-    # Merge local KB knowledge (always available) + Butterbase (best-effort)
+    # Load local prompt knowledge only.
     local_knowledge = kb_query(use_case_tag=state.get("use_case", "product_ad"), limit=3)
-    try:
-        remote_knowledge = await butterbase.query_knowledge(
-            use_case_tag=state.get("use_case", "product_ad"), limit=3
-        )
-    except Exception:
-        remote_knowledge = []
     # Deduplicate by prompt text, prefer higher avg_score
     seen: set[str] = set()
     merged: list[dict] = []
-    for entry in sorted(local_knowledge + remote_knowledge, key=lambda e: e.get("avg_score", 0), reverse=True):
+    for entry in sorted(local_knowledge, key=lambda e: e.get("avg_score", 0), reverse=True):
         key = entry.get("prompt", "")[:80]
         if key not in seen:
             seen.add(key)
             merged.append(entry)
     state["knowledge_context"] = merged[:5]
-
-    try:
-        await butterbase.save_answers(req.session_id, req.answers)
-    except Exception:
-        pass
 
     background_tasks.add_task(_run_research, req.session_id, dict(state))
     return {"session_id": req.session_id, "status": "generating"}
@@ -335,7 +311,7 @@ async def status(session_id: str):
 
 @app.post("/api/feedback")
 async def feedback(req: FeedbackRequest):
-    """Save user ratings + comment → always writes to local KB, best-effort to Butterbase."""
+    """Save user ratings + comment to the local knowledge base."""
     state = _sessions.get(req.session_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -363,20 +339,5 @@ async def feedback(req: FeedbackRequest):
         "session_id": req.session_id,
         "generation_id": req.generation_id,
     })
-
-    # Best-effort to Butterbase
-    try:
-        await butterbase.save_rating(
-            generation_id=req.generation_id,
-            session_id=req.session_id,
-            dimension_ratings=req.dimension_ratings,
-            is_winner=req.is_winner,
-            use_case_tag=use_case_tag,
-            prompt=variant.get("prompt", ""),
-            avg_score=avg_score,
-            comment=req.comment,
-        )
-    except Exception:
-        pass
 
     return {"status": "saved"}

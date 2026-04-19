@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Brain, ArrowRight, Sparkles, Upload, X, ImageIcon, Film, ArrowLeft } from "lucide-react";
+import { Brain, ArrowRight, Sparkles, Upload, X, ImageIcon, Film, ArrowLeft, Mic, MicOff, Volume2 } from "lucide-react";
 import type { UseCase } from "../types";
 import Link from "next/link";
 
@@ -43,6 +43,7 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 type Step = "brief" | "questions";
+type DictationTarget = "brief" | `answer-${number}` | null;
 
 interface QAState {
   session_id: string;
@@ -52,8 +53,26 @@ interface QAState {
 
 interface UploadedAsset {
   file: File;
-  preview: string;  // object URL
+  preview: string;
   base64: string;
+}
+
+type SpeechRecognitionCtor = new () => {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<{
+    0: { transcript: string };
+    length: number;
+  }>;
 }
 
 export default function CreatePage() {
@@ -67,11 +86,81 @@ export default function CreatePage() {
   const [productImage, setProductImage] = useState<UploadedAsset | null>(null);
   const [refVideo, setRefVideo] = useState<UploadedAsset | null>(null);
   const [imageDragging, setImageDragging] = useState(false);
+  const [dictationTarget, setDictationTarget] = useState<DictationTarget>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<InstanceType<SpeechRecognitionCtor> | null>(null);
+  const dictationTargetRef = useRef<DictationTarget>(null);
 
   const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+  useEffect(() => {
+    dictationTargetRef.current = dictationTarget;
+  }, [dictationTarget]);
+
+  useEffect(() => {
+    const speechWindow = window as Window & {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const ctor = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!ctor) return;
+
+    const recognition = new ctor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+
+      if (!transcript) return;
+
+      setError(null);
+      if (dictationTargetRef.current === "brief") {
+        setBrief(transcript);
+        return;
+      }
+
+      if (!dictationTargetRef.current?.startsWith("answer-")) return;
+      const index = Number(dictationTargetRef.current.replace("answer-", ""));
+      if (Number.isNaN(index)) return;
+
+      setQa((currentQa) => {
+        if (!currentQa) return currentQa;
+        const answers = [...currentQa.answers];
+        answers[index] = transcript;
+        return { ...currentQa, answers };
+      });
+    };
+
+    recognition.onerror = (event) => {
+      setError(
+        event.error === "not-allowed"
+          ? "Microphone access was blocked. Allow microphone access in your browser to talk to VidForge."
+          : "Voice input failed. Try again or type your response."
+      );
+      setDictationTarget(null);
+    };
+
+    recognition.onend = () => {
+      setDictationTarget(null);
+    };
+
+    recognitionRef.current = recognition;
+    setSpeechSupported(true);
+
+    return () => {
+      recognition.stop();
+      recognitionRef.current = null;
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
 
   async function loadAsset(file: File): Promise<UploadedAsset> {
     const base64 = await fileToBase64(file);
@@ -91,6 +180,38 @@ export default function CreatePage() {
     setRefVideo(asset);
   }, []);
 
+  function toggleDictation(target: Exclude<DictationTarget, null>) {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      setError("Voice input is not supported in this browser. Try Chrome or Edge, or keep typing.");
+      return;
+    }
+
+    setError(null);
+    if (dictationTarget === target) {
+      recognition.stop();
+      setDictationTarget(null);
+      return;
+    }
+
+    if (dictationTarget) recognition.stop();
+    setDictationTarget(target);
+    recognition.start();
+  }
+
+  function speakText(text: string) {
+    if (!("speechSynthesis" in window)) {
+      setError("Speech playback is not supported in this browser.");
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    window.speechSynthesis.speak(utterance);
+  }
+
   async function handleBriefSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!brief.trim()) return;
@@ -106,7 +227,6 @@ export default function CreatePage() {
       }
       if (refVideo) {
         body.reference_video_name = refVideo.file.name;
-        // Video is too large for base64 in most cases — pass name/type as style hint
         body.reference_video_type = refVideo.file.type;
       }
 
@@ -152,7 +272,7 @@ export default function CreatePage() {
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[760px] h-[320px] rounded-full bg-indigo-600/10 blur-[120px]" />
       </div>
-      {/* Header */}
+
       <header className="relative border-b border-white/10 px-6 h-14 flex items-center gap-3 bg-[#070b18]/90 backdrop-blur-md">
         <Link href="/" className="flex items-center gap-2.5 group">
           <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
@@ -165,19 +285,16 @@ export default function CreatePage() {
 
       <main className="relative flex-1 flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-5 sm:p-7">
-
-          {/* ── Step 1: Brief ─────────────────────────────────────────── */}
           {step === "brief" && (
             <form onSubmit={handleBriefSubmit} className="space-y-6">
               <div className="text-center space-y-2 mb-8">
                 <h1 className="text-4xl font-bold text-white tracking-tight">What are we creating?</h1>
                 <p className="text-white/40 text-sm leading-relaxed">
                   Add your brief, drop in a product image, and optionally a reference video.
-                  VidForge generates 3 variants scored by real brain data.
+                  VidForge generates 3 variants scored by real brain data. You can type or talk.
                 </p>
               </div>
 
-              {/* Use case grid */}
               <div className="grid grid-cols-2 gap-2.5">
                 {USE_CASES.map((uc) => (
                   <button
@@ -196,9 +313,7 @@ export default function CreatePage() {
                 ))}
               </div>
 
-              {/* Uploads row */}
               <div className="grid grid-cols-2 gap-3">
-                {/* Product image upload */}
                 <div>
                   <p className="text-white/40 text-xs mb-2 flex items-center gap-1.5">
                     <ImageIcon className="w-3 h-3" /> Product image <span className="text-white/20">(optional)</span>
@@ -243,7 +358,6 @@ export default function CreatePage() {
                   />
                 </div>
 
-                {/* Reference video upload */}
                 <div>
                   <p className="text-white/40 text-xs mb-2 flex items-center gap-1.5">
                     <Film className="w-3 h-3" /> Reference video <span className="text-white/20">(optional)</span>
@@ -284,14 +398,31 @@ export default function CreatePage() {
                 </div>
               </div>
 
-              {/* Brief textarea */}
-              <textarea
-                value={brief}
-                onChange={(e) => setBrief(e.target.value)}
-                placeholder="e.g. A premium ergonomic standing desk for remote workers — focus on health and productivity"
-                rows={4}
-                className="w-full rounded-xl border border-white/10 bg-white/3 px-4 py-3 text-white placeholder:text-white/25 focus:outline-none focus:border-indigo-500/60 resize-none text-sm leading-relaxed"
-              />
+              <div className="space-y-3">
+                <textarea
+                  value={brief}
+                  onChange={(e) => setBrief(e.target.value)}
+                  placeholder="e.g. A premium ergonomic standing desk for remote workers — focus on health and productivity"
+                  rows={4}
+                  className="w-full rounded-xl border border-white/10 bg-white/3 px-4 py-3 text-white placeholder:text-white/25 focus:outline-none focus:border-indigo-500/60 resize-none text-sm leading-relaxed"
+                />
+                {speechSupported ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleDictation("brief")}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm transition-colors ${
+                      dictationTarget === "brief"
+                        ? "border-red-500/60 bg-red-950/30 text-red-200"
+                        : "border-white/10 bg-white/[0.03] text-white/75 hover:border-white/25"
+                    }`}
+                  >
+                    {dictationTarget === "brief" ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    {dictationTarget === "brief" ? "Stop listening" : "Talk to VidForge"}
+                  </button>
+                ) : (
+                  <p className="text-xs text-white/30">Voice input works in supported browsers like Chrome or Edge.</p>
+                )}
+              </div>
 
               {error && <p className="text-red-400 text-sm">{error}</p>}
 
@@ -306,7 +437,6 @@ export default function CreatePage() {
             </form>
           )}
 
-          {/* ── Step 2: Q&A ───────────────────────────────────────────── */}
           {step === "questions" && qa && (
             <form onSubmit={handleAnswersSubmit} className="space-y-6">
               <div className="text-center space-y-2 mb-8">
@@ -315,25 +445,63 @@ export default function CreatePage() {
                   <span className="text-xs font-medium uppercase tracking-widest">Quick questions</span>
                 </div>
                 <h2 className="text-3xl font-bold text-white tracking-tight">Help us nail the brief</h2>
-                <p className="text-white/40 text-sm">Answers are pre-filled — edit or just hit generate.</p>
+                <p className="text-white/40 text-sm">Answers are pre-filled. Edit them, speak them, or have VidForge read the questions aloud.</p>
+                {qa.questions.length > 0 && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => speakText(qa.questions.map((question, i) => `Question ${i + 1}. ${question}`).join(". "))}
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-white/75 hover:border-white/25 transition-colors"
+                    >
+                      <Volume2 className="w-4 h-4" />
+                      Read questions aloud
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4">
                 {qa.questions.map((question, i) => (
                   <div key={i} className="space-y-1.5">
-                    <label className="text-white/60 text-sm font-medium">
-                      {i + 1}. {question}
-                    </label>
-                    <input
-                      type="text"
-                      value={qa.answers[i]}
-                      onChange={(e) => {
-                        const next = [...qa.answers];
-                        next[i] = e.target.value;
-                        setQa({ ...qa, answers: next });
-                      }}
-                      className="w-full rounded-xl border border-white/10 bg-white/3 px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/60"
-                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-white/60 text-sm font-medium">
+                        {i + 1}. {question}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => speakText(question)}
+                        className="inline-flex items-center gap-1 text-xs text-white/45 hover:text-white/80 transition-colors"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        Read aloud
+                      </button>
+                    </div>
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        value={qa.answers[i]}
+                        onChange={(e) => {
+                          const next = [...qa.answers];
+                          next[i] = e.target.value;
+                          setQa({ ...qa, answers: next });
+                        }}
+                        className="flex-1 rounded-xl border border-white/10 bg-white/3 px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/60"
+                      />
+                      {speechSupported && (
+                        <button
+                          type="button"
+                          onClick={() => toggleDictation(`answer-${i}`)}
+                          className={`flex-none rounded-xl border px-3 py-2.5 transition-colors ${
+                            dictationTarget === `answer-${i}`
+                              ? "border-red-500/60 bg-red-950/30 text-red-200"
+                              : "border-white/10 bg-white/[0.03] text-white/75 hover:border-white/25"
+                          }`}
+                          title={dictationTarget === `answer-${i}` ? "Stop listening" : "Answer by voice"}
+                        >
+                          {dictationTarget === `answer-${i}` ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -359,7 +527,6 @@ export default function CreatePage() {
               </div>
             </form>
           )}
-
         </div>
       </main>
     </div>

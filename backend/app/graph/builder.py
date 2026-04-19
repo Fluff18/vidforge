@@ -6,7 +6,6 @@ from app.graph.nodes.clarify import clarify_node
 from app.graph.nodes.research import research_node
 from app.graph.nodes.prompt_forge import prompt_forge_node
 from app.graph.nodes.video_gen import video_gen_node
-from app.graph.nodes.score import score_node
 from app.graph.nodes.deliver import deliver_node
 
 
@@ -30,14 +29,12 @@ def build_research_graph() -> StateGraph:
 
 
 def build_video_graph() -> StateGraph:
-    """Phase 2: video_gen + score + deliver. Runs after user confirms/edits prompts."""
+    """Phase 2: video_gen + deliver. Runs after user confirms/edits prompts."""
     graph = StateGraph(AgentState)
     graph.add_node("video_gen", video_gen_node)
-    graph.add_node("score", score_node)
     graph.add_node("deliver", deliver_node)
     graph.set_entry_point("video_gen")
-    graph.add_edge("video_gen", "score")
-    graph.add_edge("score", "deliver")
+    graph.add_edge("video_gen", "deliver")
     graph.add_edge("deliver", END)
     return graph
 
